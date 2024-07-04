@@ -1,16 +1,16 @@
 import paho.mqtt.client as mqtt
 import random
+import requests
+from bs4 import BeautifulSoup
 import influxdb_client
 from influxdb_client.client.write_api import SYNCHRONOUS
 import time
 import json
-from typing import Final
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
-from influxdb_client import InfluxDBClient
 import asyncio
 
-# Configurare client InfluxDB
+# InfluxDB Configuration
 bucket = "Nicu"
 org = "Nicu"
 token = "NYCXeTVlUEgGnu9ACtfmyd2Wnpg46Zm9_uhCat3NGpcVMwH71R5C5YEcT1y3-3l9bsRSuXF0rXU21o_Fq6Ht7g=="
@@ -77,37 +77,62 @@ def send_data():
     print(f"Written to InfluxDB: {point}")
 
 # Main loop to publish data periodically
-try:
-    while True:
-        send_data()
-        time.sleep(5)  # Sleep for 5 seconds
-except KeyboardInterrupt:
-    print("Finished")
-    reconnect = False
-    client.disconnect()
-    influx_client.close()
+def main_loop():
+    try:
+        while True:
+            send_data()
+            time.sleep(5)  # Sleep for 5 seconds
+    except KeyboardInterrupt:
+        print("Finished")
+        global reconnect
+        reconnect = False
+        client.disconnect()
+        influx_client.close()
 
-# Funcție de callback pentru comanda /start
+# Telegram Bot Configuration
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Hello! What information would you like to know?")
+    await update.message.reply_text("Hello! I am your bot. Send /help to see the list of available commands.")
 
-# Funcție de callback pentru comanda /temperature
+async def help_command(update: Update, context: ContextTypes):
+    help_text = "Available commands:\n"
+    help_text += "/start - Start the bot\n"
+    help_text += "/help - Show this help message\n"
+    help_text += "/info - Get bot information\n"
+    help_text += "/temperature - Get the current temperature"
+    help_text += "/humidity - Get the current humidity"
+    await update.message.reply_text(help_text)
+
+async def info(update: Update, context: ContextTypes):
+    bot_info = "Bot Name: {}\nUsername: @{}\nID: {}".format(
+        context.bot.name, context.bot.username, context.bot.id)
+    await update.message.reply_text(bot_info)
+
 async def temperature(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    temperature, _ = generate_sensor_data()
-    await update.message.reply_text(f'Temperatura actuală este: {temperature}°C')
+    data = generate_sensor_data()
+    await update.message.reply_text(f'Temperatura actuală este: {data["temperature"]}°C')
 
-# Funcție de callback pentru comanda /humidity
 async def humidity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    _, humidity = generate_sensor_data()
-    await update.message.reply_text(f'Umiditatea actuală este: {humidity}%')
+    data = generate_sensor_data()
+    await update.message.reply_text(f'Umiditatea actuală este: {data["humidity"]}%')
 
-# Configurare bot Telegram
-telegram_token = "7482201156:AAG52lN9WC6xJ0IOY0rt7w5OpYIxhFWwUDU"
-application = Application.builder().token(telegram_token).build()
+# Main function to run both the main loop and the Telegram bot
+def main():
+    # Start the main loop in a separate thread
+    import threading
+    threading.Thread(target=main_loop).start()
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("temperature", temperature))
-application.add_handler(CommandHandler("humidity", humidity))
+    # Set up the Telegram bot
+    telegram_token = "7482201156:AAG52lN9WC6xJ0IOY0rt7w5OpYIxhFWwUDU"
+    application = Application.builder().token(telegram_token).build()
 
-# Pornire bot
-application.run_polling()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("info", info))
+    application.add_handler(CommandHandler("temperature", temperature))
+    application.add_handler(CommandHandler("humidity", humidity))
+
+    # Run the Telegram bot
+    application.run_polling()
+
+if __name__ == "__main__":
+    main()
